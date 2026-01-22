@@ -9,9 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-/**
- * Add the Settings Submenu under the Custom Post Type.
- */
+add_action( 'admin_menu', 'wpcd_add_settings_page' );
 function wpcd_add_settings_page() {
 	add_submenu_page(
 		'edit.php?post_type=wpcd_package',
@@ -22,117 +20,79 @@ function wpcd_add_settings_page() {
 		'wpcd_render_settings_page'
 	);
 }
-add_action( 'admin_menu', 'wpcd_add_settings_page' );
 
-/**
- * Render the Settings Page HTML.
- */
 function wpcd_render_settings_page() {
 	if ( ! current_user_can( 'manage_options' ) ) {
 		return;
 	}
+
+	// Handle Manual Sync Trigger
+	if ( isset( $_POST['wpcd_manual_sync'] ) && check_admin_referer( 'wpcd_sync_action', 'wpcd_sync_nonce' ) ) {
+		wpcd_run_full_zip_cycle();
+		echo '<div class="updated"><p>' . esc_html__( 'Library Sync Triggered! Check the /uploads/wpcd-exports/ folder.', 'wp-cloud-deployer' ) . '</p></div>';
+	}
 	?>
 	<div class="wrap">
 		<h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
-		<hr>
+		
+		<div class="notice notice-info">
+			<p><strong><?php esc_html_e( 'Manual Refresh:', 'wp-cloud-deployer' ); ?></strong> 
+			If ZIPs are missing, use this button to force a rebuild of the library.</p>
+			<form method="post" style="padding-bottom:10px;">
+				<?php wp_nonce_field( 'wpcd_sync_action', 'wpcd_sync_nonce' ); ?>
+				<input type="submit" name="wpcd_manual_sync" class="button button-secondary" value="Force Refresh Plugin ZIPs">
+			</form>
+		</div>
+
 		<form action="options.php" method="post">
 			<?php
 			settings_fields( 'wpcd_settings_group' );
 			do_settings_sections( 'wpcd-settings' );
-			submit_button( esc_html__( 'Save & Refresh Core Library', 'wp-cloud-deployer' ) );
+			submit_button( esc_html__( 'Save Settings', 'wp-cloud-deployer' ) );
 			?>
 		</form>
 	</div>
 	<?php
 }
 
-/**
- * Register Settings, Sections, and Fields.
- */
+add_action( 'admin_init', 'wpcd_register_settings' );
 function wpcd_register_settings() {
 	register_setting( 'wpcd_settings_group', 'wpcd_brand_name', 'sanitize_text_field' );
 	register_setting( 'wpcd_settings_group', 'wpcd_core_plugins', 'wpcd_sanitize_array' );
+	register_setting( 'wpcd_settings_group', 'wpcd_license_keys' ); // License Warehouse
 
-	// Section 1: Agency Branding
-	add_settings_section( 
-		'wpcd_branding_section', 
-		esc_html__( 'Agency Branding', 'wp-cloud-deployer' ), 
-		null, 
-		'wpcd-settings' 
-	);
+	add_settings_section( 'wpcd_branding_section', 'Agency Branding', null, 'wpcd-settings' );
+	add_settings_field( 'wpcd_brand_name', 'Agency Brand Name', 'wpcd_brand_name_callback', 'wpcd-settings', 'wpcd_branding_section' );
 
-	add_settings_field( 
-		'wpcd_brand_name', 
-		esc_html__( 'Agency Brand Name', 'wp-cloud-deployer' ), 
-		'wpcd_brand_name_callback', 
-		'wpcd-settings', 
-		'wpcd_branding_section' 
-	);
+	add_settings_section( 'wpcd_license_section', 'License Warehouse', null, 'wpcd-settings' );
+	add_settings_field( 'wpcd_license_keys', 'Stored License Keys', 'wpcd_render_license_field', 'wpcd-settings', 'wpcd_license_section' );
 
-	// Section 2: Deployment Defaults
-	add_settings_section( 
-		'wpcd_core_section', 
-		esc_html__( 'Global Core Plugins', 'wp-cloud-deployer' ), 
-		null, 
-		'wpcd-settings' 
-	);
-
-	add_settings_field( 
-		'wpcd_core_plugins', 
-		esc_html__( 'Select "Must-Have" Plugins', 'wp-cloud-deployer' ), 
-		'wpcd_render_core_plugin_checklist', 
-		'wpcd-settings', 
-		'wpcd_core_section' 
-	);
+	add_settings_section( 'wpcd_core_section', 'Global Core Plugins', null, 'wpcd-settings' );
+	add_settings_field( 'wpcd_core_plugins', 'Select "Must-Have" Plugins', 'wpcd_render_core_plugin_checklist', 'wpcd-settings', 'wpcd_core_section' );
 }
-add_action( 'admin_init', 'wpcd_register_settings' );
 
-/**
- * Branding Name Field Callback.
- */
 function wpcd_brand_name_callback() {
 	$val = get_option( 'wpcd_brand_name', 'WP Cloud Deployer' );
-	echo '<input type="text" name="wpcd_brand_name" value="' . esc_attr( $val ) . '" class="regular-text" placeholder="e.g., My Agency Cloud">';
-	echo '<p class="description">' . esc_html__( 'This name will appear in the sidebar and dashboard labels.', 'wp-cloud-deployer' ) . '</p>';
+	echo '<input type="text" name="wpcd_brand_name" value="' . esc_attr( $val ) . '" class="regular-text">';
 }
 
-/**
- * Core Plugins Checklist Callback.
- */
+function wpcd_render_license_field() {
+	$val = get_option( 'wpcd_license_keys' );
+	echo '<textarea name="wpcd_license_keys" rows="5" class="large-text" placeholder="Format: Plugin Name | Key">'.esc_textarea($val).'</textarea>';
+	echo '<p class="description">One per line. These will be sent to the Client site during deployment.</p>';
+}
+
 function wpcd_render_core_plugin_checklist() {
 	$all_plugins = get_plugins();
 	$selected    = get_option( 'wpcd_core_plugins', array() );
-	
-	echo '<p>' . esc_html__( 'Select plugins to be bundled in the "Start Site" deployment sequence:', 'wp-cloud-deployer' ) . '</p>';
-	echo '<div style="max-height:300px; overflow-y:auto; border:1px solid #ccc; padding:15px; background:#fff; border-radius:4px;">';
-	
+	echo '<div style="max-height:200px; overflow-y:auto; border:1px solid #ccc; padding:10px; background:#fff;">';
 	foreach ( $all_plugins as $slug => $data ) {
 		$checked = in_array( $slug, (array) $selected ) ? 'checked' : '';
-		echo '<label style="display:block; margin-bottom:8px; border-bottom:1px solid #eee; padding-bottom:4px;">';
-		echo '<input type="checkbox" name="wpcd_core_plugins[]" value="' . esc_attr( $slug ) . '" ' . $checked . '> ';
-		echo '<strong>' . esc_html( $data['Name'] ) . '</strong> <small>(v' . esc_html( $data['Version'] ) . ')</small>';
-		echo '</label>';
+		echo '<label style="display:block;"><input type="checkbox" name="wpcd_core_plugins[]" value="' . esc_attr( $slug ) . '" ' . $checked . '> ' . esc_html( $data['Name'] ) . '</label>';
 	}
-	
 	echo '</div>';
 }
 
-/**
- * Sanitize array input for settings.
- */
 function wpcd_sanitize_array( $input ) {
-	if ( ! is_array( $input ) ) {
-		return array();
-	}
-	return array_map( 'sanitize_text_field', $input );
-}
-
-/**
- * Trigger immediate ZIP refresh when core settings are updated.
- */
-add_action( 'update_option_wpcd_core_plugins', 'wpcd_trigger_sync_on_save', 10, 2 );
-function wpcd_trigger_sync_on_save( $old_value, $new_value ) {
-	if ( function_exists( 'wpcd_run_full_zip_cycle' ) ) {
-		wpcd_run_full_zip_cycle();
-	}
+	return is_array( $input ) ? array_map( 'sanitize_text_field', $input ) : array();
 }
