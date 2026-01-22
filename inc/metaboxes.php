@@ -87,24 +87,28 @@ function wpcd_render_package_assets_metabox( $post ) {
 			</select>
 		</div>
 
-		<div class="wpcd-field-group">
-			<label class="wpcd-label" for="wpcd_snippets"><?php esc_html_e( 'Select Code Snippets:', 'wp-cloud-deployer' ); ?></label>
-			<select name="wpcd_snippets[]" id="wpcd_snippets" class="wpcd-select2" multiple="multiple" style="width: 100%;">
-				<?php
-				global $wpdb;
-				$table_name = $wpdb->prefix . 'snippets';
-				if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table_name ) ) === $table_name ) {
-					$snippets = $wpdb->get_results( "SELECT id, title FROM $table_name WHERE active = 1" );
-					foreach ( $snippets as $snippet ) {
-						$selected = in_array( $snippet->id, $selected_snippets ) ? 'selected' : '';
-						echo '<option value="' . esc_attr( $snippet->id ) . '" ' . $selected . '>' . esc_html( $snippet->title ) . '</option>';
-					}
-				} else {
-					echo '<option disabled>' . esc_html__( 'Code Snippets plugin table not found.', 'wp-cloud-deployer' ) . '</option>';
-				}
-				?>
-			</select>
-		</div>
+<div class="wpcd-field-group">
+    <label class="wpcd-label" for="wpcd_snippets"><?php esc_html_e( 'Select Code Snippets:', 'wp-cloud-deployer' ); ?></label>
+    <select name="wpcd_snippets[]" id="wpcd_snippets" class="wpcd-select2" multiple="multiple" style="width: 100%;">
+        <?php
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'snippets';
+        if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table_name ) ) === $table_name ) {
+            // Check if column is 'name' or 'title' to prevent DB error
+            $columns = $wpdb->get_col( "DESC $table_name", 0 );
+            $name_col = in_array( 'name', $columns ) ? 'name' : 'title';
+            
+            $snippets = $wpdb->get_results( "SELECT id, $name_col as title FROM $table_name WHERE active = 1" );
+            foreach ( $snippets as $snippet ) {
+                $selected = in_array( $snippet->id, $selected_snippets ) ? 'selected' : '';
+                echo '<option value="' . esc_attr( $snippet->id ) . '" ' . $selected . '>' . esc_html( $snippet->title ) . '</option>';
+            }
+        } else {
+            echo '<option disabled>' . esc_html__( 'Code Snippets table not found.', 'wp-cloud-deployer' ) . '</option>';
+        }
+        ?>
+    </select>
+</div>
 
 		<div class="wpcd-field-group">
 			<label class="wpcd-label"><?php esc_html_e( 'Bundle Additional Plugins:', 'wp-cloud-deployer' ); ?></label>
