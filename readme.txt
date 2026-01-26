@@ -4,15 +4,14 @@ Tags: deployment, automation, elementor, gravity-forms, sflwa
 Requires at least: 6.0
 Tested up to: 6.9.2
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.2.0
 License: GPLv2 or later
-License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
 == Description ==
 
-The Master "Warehouse" plugin for the WP Cloud Deployer system by SFLWA. This plugin transforms a standard WordPress installation into a deployment hub. 
+The Master "Warehouse" plugin for the WP Cloud Deployer system. This plugin serves as the central hub for your entire cloud architecture, allowing you to curate a library of Elementor pages, Gravity Forms, and Code Snippets.
 
-Curate a library of Elementor pages, Gravity Forms, and Code Snippets. The plugin automatically packages these assets (including zipping premium plugins) and serves them via a secure REST API to authorized "Client" build sites.
+Assets are automatically packaged (including premium plugin zipping) and served via a secure REST API to authorized "Client" sites. Version 1.2.0 establishes the foundation for the Agent ID dynamic replacement system.
 
 == Installation ==
 
@@ -21,7 +20,14 @@ Curate a library of Elementor pages, Gravity Forms, and Code Snippets. The plugi
 3. Go to the **WP Cloud Deployer** menu in the sidebar.
 4. Set your **Agency Brand Name** and select **Core Plugins** in the Global Defaults tab.
 5. Create your first **Package** and assign the specific pages/forms you wish to deploy.
-6. Ensure **Application Passwords** are enabled on your user profile to allow the Client plugin to connect.
+6. Use **Application Passwords** to authorize Client-side connections.
+
+== Content Logic ==
+
+The Master plugin prepares content for injection with specific placeholders:
+* **Elementor Data:** Prepared for JSON-safe search and replace.
+* **Code Snippets:** Exported with standard scope and activation flags.
+* **Gravity Forms:** Served via JSON manifest for direct API injection.
 
 == Frequently Asked Questions ==
 
@@ -33,8 +39,9 @@ Yes. All data delivery is handled via the WordPress REST API. Access is restrict
 
 == Changelog ==
 
+= 1.2.0 =
+* Optimized REST API endpoints for V2.0 Client compatibility.
+* Refined manifest structure for Gravity Forms and Code Snippets.
+
 = 1.0.0 =
 * Initial release of the Master Library system.
-* Support for Elementor Page JSON and Gravity Form XML bundling.
-* Automated weekly plugin zipping service.
-* White-label branding for the Master dashboard.
