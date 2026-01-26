@@ -1,6 +1,6 @@
 <?php
 /**
- * Service for archiving installed plugins into ZIP files for deployment.
+ * Zipper Service: Packages plugin folders into ZIP files for deployment.
  *
  * @package WPCloudDeployer
  */
@@ -10,100 +10,104 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Zips a specific plugin folder.
+ * Runs the full cycle of zipping all selected core and package plugins.
  */
-function wpcd_zip_installed_plugin( $plugin_slug ) {
-	if ( ! class_exists( 'ZipArchive' ) ) {
-		return false;
-	}
-
-	$folder_name = explode( '/', $plugin_slug )[0];
-	$plugin_base = WP_PLUGIN_DIR . '/' . $folder_name;
+function wpcd_run_full_zip_cycle() {
+	$export_dir = wpcd_maybe_create_export_dir();
 	
-	if ( ! is_dir( $plugin_base ) ) {
-		return false;
+	// 1. Get Global Core Plugins
+	$core_plugins = get_option( 'wpcd_core_plugins', array() );
+	
+	// 2. Get all plugins used in Packages
+	$package_plugins = array();
+	$packages = get_posts( array( 'post_type' => 'wpcd_package', 'posts_per_page' => -1 ) );
+	foreach ( $packages as $pkg ) {
+		$plugins = get_post_meta( $pkg->ID, '_wpcd_plugins', true );
+		if ( is_array( $plugins ) ) {
+			$package_plugins = array_merge( $package_plugins, $plugins );
+		}
 	}
 
+	// Unique list of all plugins that need zipping
+	$all_to_zip = array_unique( array_merge( (array)$core_plugins, $package_plugins ) );
+
+	foreach ( $all_to_zip as $plugin_path ) {
+		wpcd_create_plugin_zip( $plugin_path, $export_dir );
+	}
+}
+
+/**
+ * Create the export directory and a permissive .htaccess.
+ * This is the "Rescue" logic to ensure the Client can actually download the files.
+ */
+function wpcd_maybe_create_export_dir() {
 	$upload_dir = wp_upload_dir();
 	$export_dir = $upload_dir['basedir'] . '/wpcd-exports';
 
 	if ( ! file_exists( $export_dir ) ) {
 		wp_mkdir_p( $export_dir );
-		file_put_contents( $export_dir . '/.htaccess', 'Options -Indexes' );
-		file_put_contents( $export_dir . '/index.php', '<?php // Silence is golden' );
 	}
 
-	$zip_file_path = $export_dir . '/' . $folder_name . '.zip';
-	$zip           = new ZipArchive();
+	// Permissive .htaccess: Allow ZIP downloads but block directory indexing.
+	$htaccess_content  = "Options -Indexes\n";
+	$htaccess_content .= "<FilesMatch \"\.(zip)$\">\n";
+	$htaccess_content .= "    <IfModule mod_authz_core.c>\n";
+	$htaccess_content .= "        Require all granted\n";
+	$htaccess_content .= "    </IfModule>\n";
+	$htaccess_content .= "    <IfModule !mod_authz_core.c>\n";
+	$htaccess_content .= "        Order allow,deny\n";
+	$htaccess_content .= "        Allow from all\n";
+	$htaccess_content .= "    </IfModule>\n";
+	$htaccess_content .= "</FilesMatch>";
 
-	if ( true === $zip->open( $zip_file_path, ZipArchive::CREATE | ZipArchive::OVERWRITE ) ) {
-		$files = new RecursiveIteratorIterator(
-			new RecursiveDirectoryIterator( $plugin_base ),
-			RecursiveIteratorIterator::LEAVES_ONLY
-		);
+	file_put_contents( $export_dir . '/.htaccess', $htaccess_content );
 
-		foreach ( $files as $name => $file ) {
-			if ( ! $file->isDir() ) {
-				$file_path     = $file->getRealPath();
-				$relative_path = $folder_name . '/' . substr( $file_path, strlen( $plugin_base ) + 1 );
-				$zip->addFile( $file_path, $relative_path );
-			}
-		}
-
-		$zip->close();
-		return $upload_dir['baseurl'] . '/wpcd-exports/' . $folder_name . '.zip';
-	}
-
-	return false;
+	return $export_dir;
 }
 
 /**
- * Runs a full cycle of zipping for all Core and Package plugins.
+ * Zips a plugin folder.
+ *
+ * @param string $plugin_path The path from plugins root (e.g., 'elementor/elementor.php').
+ * @param string $export_dir  The absolute path to the export destination.
  */
-function wpcd_run_full_zip_cycle() {
-	if ( function_exists( 'set_time_limit' ) ) {
-		set_time_limit( 300 ); 
+function wpcd_create_plugin_zip( $plugin_path, $export_dir ) {
+	$slug = explode( '/', $plugin_path )[0];
+	$source = WP_PLUGIN_DIR . '/' . $slug;
+	$destination = $export_dir . '/' . $slug . '.zip';
+
+	if ( ! file_exists( $source ) ) {
+		return false;
 	}
 
-	$core_plugins = get_option( 'wpcd_core_plugins', array() );
-	
-	$package_plugins = array();
-	$packages        = get_posts( array(
-		'post_type'      => 'wpcd_package',
-		'posts_per_page' => -1,
-		'fields'         => 'ids',
-	) );
+	// Initialize archive object
+	$zip = new ZipArchive();
+	if ( $zip->open( $destination, ZipArchive::CREATE | ZipArchive::OVERWRITE ) !== true ) {
+		return false;
+	}
 
-	foreach ( $packages as $pkg_id ) {
-		$pkg_assets = get_post_meta( $pkg_id, '_wpcd_plugins', true );
-		if ( is_array( $pkg_assets ) ) {
-			$package_plugins = array_merge( $package_plugins, $pkg_assets );
+	$files = new RecursiveIteratorIterator(
+		new RecursiveDirectoryIterator( $source ),
+		RecursiveIteratorIterator::LEAVES_ONLY
+	);
+
+	foreach ( $files as $name => $file ) {
+		// Skip directories (they are added automatically)
+		if ( ! $file->isDir() ) {
+			$file_path = $file->getRealPath();
+			$relative_path = $slug . '/' . substr( $file_path, strlen( $source ) + 1 );
+			$zip->addFile( $file_path, $relative_path );
 		}
 	}
 
-	$all_to_zip = array_unique( array_merge( (array) $core_plugins, $package_plugins ) );
-
-	if ( ! empty( $all_to_zip ) ) {
-		foreach ( $all_to_zip as $slug ) {
-			wpcd_zip_installed_plugin( $slug );
-		}
-	}
+	$zip->close();
+	return $destination;
 }
-add_action( 'wpcd_weekly_plugin_refresh', 'wpcd_run_full_zip_cycle' );
 
 /**
- * Clean DB fix for Code Snippets table changes.
+ * Schedule a weekly refresh of ZIP files.
  */
-function wpcd_get_snippets_safely() {
-	global $wpdb;
-	$table = $wpdb->prefix . 'snippets';
-	
-	if ( $wpdb->get_var( $wpdb->prepare( "SHOW TABLES LIKE %s", $table ) ) !== $table ) {
-		return array();
-	}
-
-	$columns = $wpdb->get_col( "DESC $table", 0 );
-	$column_to_use = in_array( 'name', $columns ) ? 'name' : 'title';
-
-	return $wpdb->get_results( "SELECT id, $column_to_use as display_name FROM $table WHERE active = 1" );
+if ( ! wp_next_scheduled( 'wpcd_weekly_zip_refresh' ) ) {
+	wp_schedule_event( time(), 'weekly', 'wpcd_weekly_zip_refresh' );
 }
+add_action( 'wpcd_weekly_zip_refresh', 'wpcd_run_full_zip_cycle' );
