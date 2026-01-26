@@ -1,9 +1,8 @@
 <?php
 /**
  * REST API Endpoints for Master-to-Client communication.
- * Version: 1.7
- * * Strict Policy: No refactoring/shortening applied.
- * * Added: Output buffer clearing for clean JSON delivery.
+ * Version: 1.8
+ * Added: Gravity Forms Entries, GravityKit Views, and Options Sync.
  *
  * @package WPCloudDeployer
  */
@@ -60,7 +59,7 @@ function wpcd_get_packages_list() {
 }
 
 /**
- * The Package Injector: Compiles Plugins, Elementor, Gravity Forms, and Snippets.
+ * The Package Injector: Compiles Plugins, Elementor, Gravity Forms + Entries, Views, and Options.
  */
 function wpcd_get_single_package_data( $request ) {
     global $wpdb;
@@ -81,7 +80,9 @@ function wpcd_get_single_package_data( $request ) {
             'content' => array(
                 'pages'    => array(),
                 'forms'    => array(),
+                'views'    => array(),
                 'snippets' => array(),
+                'options'  => array(), // New: System Settings
             ),
         )
     );
@@ -106,21 +107,34 @@ function wpcd_get_single_package_data( $request ) {
         );
     }
 
-    // 3. Process Gravity Forms
+    // 3. Process Gravity Forms + Entries
     if ( class_exists( 'GFAPI' ) ) {
         $form_ids = get_post_meta( $package_id, '_wpcd_forms', true ) ?: array();
         foreach ( (array) $form_ids as $fid ) {
             $form_object = GFAPI::get_form( $fid );
             if ( is_array( $form_object ) ) {
+                // Attach the last 50 entries to the form object
+                $form_object['entries'] = GFAPI::get_entries( $fid, array(), null, array( 'page_size' => 50 ) );
                 $data['data']['content']['forms'][] = $form_object;
             }
         }
     }
 
-    // 4. Code Snippets (SQL Table version)
+    // 4. Process GravityKit Views
+    $view_ids = get_post_meta( $package_id, '_wpcd_views', true ) ?: array();
+    foreach ( (array) $view_ids as $vid ) {
+        $view_post = get_post( $vid );
+        if ( $view_post && 'gravityview' === $view_post->post_type ) {
+            $data['data']['content']['views'][] = array(
+                'title' => $view_post->post_title,
+                'meta'  => get_post_custom( $vid ) // Captures all View configuration
+            );
+        }
+    }
+
+    // 5. Process Code Snippets (SQL Table version)
     $snippet_ids = get_post_meta( $package_id, '_wpcd_snippets', true ) ?: array();
     $table_name = $wpdb->prefix . 'snippets';
-    
     foreach ( (array) $snippet_ids as $sid ) {
         $snippet = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $table_name WHERE id = %d", $sid ) );
         if ( $snippet ) {
@@ -133,7 +147,18 @@ function wpcd_get_single_package_data( $request ) {
         }
     }
 
-    // v1.7: Clear any stray output and send clean JSON
+    // 6. Process ITB / System Options
+    $option_names = get_post_meta( $package_id, '_wpcd_options', true ) ?: array();
+    foreach ( (array) $option_names as $opt_name ) {
+        $val = get_option( $opt_name );
+        if ( false !== $val ) {
+            $data['data']['content']['options'][] = array(
+                'name'  => $opt_name,
+                'value' => maybe_serialize( $val ) // Ensure serialized strings stay intact
+            );
+        }
+    }
+
     if ( ob_get_length() ) ob_clean();
     wp_send_json( $data );
 }
